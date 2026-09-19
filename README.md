@@ -159,6 +159,47 @@ Building an agent harness for Gemma 4 requires addressing unique model behaviors
 
 ---
 
+## Contradictions & Discrepancies in Google's Specifications & Code
+
+During development and testing with Gemma 4, several notable contradictions between Google's published specifications, training distribution format, official documentation, and upstream library code were uncovered:
+
+### 1. The Thought-Stripping Directive vs. Training Distribution Prior
+- **The Documented Rule**: Google's official [Thinking Capabilities Guide](https://ai.google.dev/gemma/docs/capabilities/thinking) explicitly mandates:
+  > *"You must remove (strip) the model's generated thoughts from the previous turn before passing the conversation history back to the model for the next turn."*
+- **The Implementation Contradiction**: In Gemma-4's instruction fine-tuning dataset, *every single model turn was conditioned on emitting an opening thought channel token immediately following the turn header*:
+  ```
+  <|turn>model
+  <|channel>thought
+  ...
+  ```
+  The model's learned token prior at that exact sequence boundary is $P(\text{<|channel>}) \approx 1.0$.
+  When developers follow Google's explicit rule to strip prior thoughts, Google's Hub `chat_template.jinja` rendered bare turns:
+  ```
+  <|turn>model
+  {content}<turn|>
+  ```
+- **The Failure**: As documented in [Gemma 4 Discussion #77](https://huggingface.co/google/gemma-4-31B-it/discussions/77), completely omitting the thought channel structure places the model severely out of distribution on turn 2+. This triggers an infinite "channel bounce" loop (`<channel|><|channel>thought`), cyclical token attractors (repetition loops), and tool syntax collapse.
+- **Harness Resolution**: The harness satisfies Google's requirement (no leaked thoughts across turns) while respecting the model's token distribution by formatting historical assistant turns with an empty thought envelope (`<|channel>thought\n<channel|>`).
+
+### 2. Tool Delimiter Specification vs. Upstream Stop Token Omission
+- **The Documented Rule**: Google's [Prompt Formatting Guide](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4) states tool calls are enclosed within `<|tool_call>call:name{...}<tool_call|>`.
+- **The Upstream Code Contradiction**: In [Hugging Face Transformers PR #45257](https://github.com/huggingface/transformers/pull/45257), pull request changes proposing `<tool_call|>` as a generation stop token were closed unmerged because maintainers believed Hub chat template updates were sufficient. Neither `generation_config.json` nor serving tokenizers included `<tool_call|>` in stop tokens (and commits in the PR even stripped it in an attempt to allow parallel tool calls).
+- **The Failure**: Gemma 4 does *not* emit `<turn|>` immediately after a tool call. Without `<tool_call|>` in the serving engine's stop list, inference engines like vLLM do not halt. The model continues generating beyond the closing tag, hallucinating simulated tool results and corrupted subsequent turns.
+- **Harness Resolution**: The client explicitly passes `stop=["<turn|>", "<tool_call|>", "<|tool_call|>", "<|tool_response>"]` directly to the `/v1/completions` API and patches tokenizer response template formatting.
+
+### 3. Strict Schema Declarations vs. Model Output Generation
+- **The Documented Rule**: Google's [Function Calling Documentation](https://ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4) specifies that tool calls follow declared argument schemas with named parameters (e.g. `call:bash{command:<|"|>...<|"|>}`).
+- **The Real-World Contradiction**: In multi-turn execution, Gemma 4 frequently generates tool arguments using positional dictionary keys (`{"1": "...", "0": "..."}`) or embeds shell scripts inside conversational markdown code fences (````bash ... ````).
+- **The Failure**: Tool execution layers built strictly to Google's schema parser fail with missing argument errors or unparsed markdown, leaving tools unexecuted.
+- **Harness Resolution**: `Agent.extract_command()` dynamically resolves `"command"`, `"1"`, `"0"`, and sole dictionary keys, regex-extracting clean shell scripts from markdown blocks.
+
+### 4. OpenAI Compatibility vs. Special Token Stripping
+- **The Expectation**: Standard OpenAI `/v1/chat/completions` and `/v1/completions` endpoints serve tool-enabled models out-of-the-box.
+- **The Serving Contradiction**: vLLM's `/v1/chat/completions` endpoint strips `<|channel>thought` internal reasoning tokens when tools are active. Simultaneously, `/v1/completions` defaults to `skip_special_tokens=True`, silently stripping `<|tool_call>` (token ID 48) and `<tool_call|>` (token ID 49).
+- **Harness Resolution**: Prompts are formatted client-side with Hugging Face `AutoTokenizer` and dispatched to `/v1/completions` with explicit `skip_special_tokens=False`.
+
+---
+
 ## Session Transcripts
 Every interaction is logged to `./transcripts/{isodate}.jsonc` containing full structured event logs:
 - Raw prompt texts and completion tokens.
