@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--system-prompt-file",
         type=str,
         default=None,
-        help="Path to file containing system prompt (default: prompts/system_prompt.txt)"
+        help="Path to file containing system prompt (default: prompts/system_prompt.md)"
     )
     parser.add_argument(
         "--system-prompt",

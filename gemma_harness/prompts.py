@@ -42,5 +42,5 @@ def load_prompt(filename: str, fallback: Optional[str] = None) -> str:
     raise FileNotFoundError(f"Prompt file not found: {filepath} (checked {filename} and {filepath})")
 
 
-def load_system_prompt(filename: str = "system_prompt.txt") -> str:
+def load_system_prompt(filename: str = "system_prompt.md") -> str:
     return load_prompt(filename, fallback=DEFAULT_SYSTEM_PROMPT)
