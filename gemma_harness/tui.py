@@ -72,11 +72,40 @@ class GemmaTUI(App):
         self.agent.on_status = self._on_status
 
         self.update_status()
+        if getattr(self.agent, "sandbox", None):
+            self.prewarm_sandbox()
+
         chat_log = self.query_one("#chat-log", RichLog)
         chat_log.write("[bold green]Welcome to Gemma 4 Reference Harness![/bold green]")
         chat_log.write("[dim]Supports multi-turn chat, thinking mode, and bash tool execution.[/dim]")
         chat_log.write("[dim]Type [bold]/help[/bold] to see available commands.[/dim]\n")
         self.query_one("#user-input", Input).focus()
+
+    @work(thread=True)
+    def prewarm_sandbox(self) -> None:
+        try:
+            sandbox = getattr(self.agent, "sandbox", None)
+            if sandbox and not sandbox.is_running:
+                sandbox.start()
+                self.call_from_thread(self.update_status)
+        except Exception:
+            self.call_from_thread(self.update_status)
+
+    def get_sandbox_status(self) -> str:
+        sandbox = getattr(self.agent, "sandbox", None)
+        if not sandbox:
+            return "[red]●[/red] off"
+        try:
+            is_running = getattr(sandbox, "is_running", False)
+            cid = getattr(sandbox, "container_id", None)
+            if is_running and cid:
+                return f"[green]●[/green] {cid}"
+            elif is_running:
+                return "[green]●[/green] online"
+            else:
+                return "[red]●[/red] offline"
+        except Exception:
+            return "[red]●[/red] offline"
 
     def update_status(self, custom_status: str = None) -> None:
         status_bar = self.query_one("#status-bar", Static)
@@ -85,7 +114,10 @@ class GemmaTUI(App):
         except Exception:
             status_text = custom_status or "Context status unavailable"
         thinking_text = "ON" if self.agent.config.enable_thinking else "OFF"
-        status_bar.update(f"[b]{status_text}[/b]  |  Thinking: [b]{thinking_text}[/b]")
+        sandbox_text = self.get_sandbox_status()
+        status_bar.update(
+            f"[b]{status_text}[/b]  |  Thinking: [b]{thinking_text}[/b]  |  Sandbox: {sandbox_text}"
+        )
 
     def _on_thought(self, thought: str) -> None:
         def _update():
@@ -112,6 +144,7 @@ class GemmaTUI(App):
                 chat_log.write(f"[red]{stderr}[/red]")
             chat_log.write(f"[dim](exit code: {code})[/dim]\n")
         self.call_from_thread(_update)
+        self.call_from_thread(self.update_status)
 
     def _on_content(self, content: str) -> None:
         def _update():

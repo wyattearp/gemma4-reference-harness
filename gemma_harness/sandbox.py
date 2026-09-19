@@ -21,6 +21,7 @@ class DockerSandbox:
         self.runtime = runtime
         self.auto_build = auto_build
         self.container_name = f"gemma-sandbox-{os.getpid()}"
+        self.container_id: Optional[str] = None
         self._started = False
         atexit.register(self.stop)
 
@@ -89,7 +90,23 @@ class DockerSandbox:
             self.stop()
             raise RuntimeError(f"Failed to configure sandbox routing: {route_res.stderr.strip()}")
 
+        self.container_id = res.stdout.strip()[:12]
         self._started = True
+
+    @property
+    def is_running(self) -> bool:
+        if not self._started or not self.container_name:
+            return False
+        try:
+            inspect = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", self.container_name],
+                capture_output=True,
+                text=True,
+                timeout=1.0,
+            )
+            return inspect.returncode == 0 and inspect.stdout.strip() == "true"
+        except Exception:
+            return False
 
     def execute(self, command: str, timeout: float = 60.0) -> Dict[str, any]:
         if not self._started:
@@ -134,6 +151,8 @@ class DockerSandbox:
             }
 
     def stop(self) -> None:
-        if self._started:
+        if self._started or self.container_id:
             subprocess.run(["docker", "rm", "-f", self.container_name], capture_output=True)
             self._started = False
+            self.container_id = None
+

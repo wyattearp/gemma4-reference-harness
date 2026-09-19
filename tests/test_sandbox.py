@@ -48,7 +48,17 @@ class TestDockerSandbox(unittest.TestCase):
         self.assertIn("172.16.0.0/12", result["stdout"])
         self.assertIn("192.168.0.0/16", result["stdout"])
 
+    def test_sandbox_container_id_and_is_running(self):
+        self.sandbox.start()
+        self.assertIsNotNone(self.sandbox.container_id)
+        self.assertEqual(len(self.sandbox.container_id), 12)
+        self.assertTrue(self.sandbox.is_running)
+
     # 2. Sad-path tests
+    def test_sandbox_is_running_when_stopped(self):
+        self.assertFalse(self.sandbox.is_running)
+        self.assertIsNone(self.sandbox.container_id)
+
     def test_sandbox_command_timeout(self):
         result = self.sandbox.execute("sleep 2", timeout=0.5)
         self.assertEqual(result["exit_code"], 124)
@@ -63,6 +73,8 @@ class TestDockerSandbox(unittest.TestCase):
         # Stopping unstarted or stopped sandbox should never raise
         self.sandbox.stop()
         self.sandbox.stop()
+        self.assertFalse(self.sandbox.is_running)
+        self.assertIsNone(self.sandbox.container_id)
 
     def test_sandbox_invalid_image_fails_loudly(self):
         bad_sandbox = DockerSandbox(
@@ -76,3 +88,4 @@ class TestDockerSandbox(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

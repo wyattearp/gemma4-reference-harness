@@ -77,7 +77,58 @@ class TestTUI(unittest.IsolatedAsyncioTestCase):
             # Must not overlap status bar
             self.assertLessEqual(inp_container.region.y + inp_container.region.height, status.region.y)
 
+    async def test_tui_status_bar_shows_online_sandbox_container_id(self):
+        mock_agent = MagicMock()
+        mock_agent.client.model_name = "test-model"
+        mock_agent.config.enable_thinking = True
+        mock_agent.get_context_status.return_value = "100k left"
+        mock_sandbox = MagicMock()
+        mock_sandbox.is_running = True
+        mock_sandbox.container_id = "7a9b1c2d3e4f"
+        mock_agent.sandbox = mock_sandbox
+
+        app = GemmaTUI(mock_agent)
+        async with app.run_test(size=(80, 24)) as pilot:
+            status = app.query_one("#status-bar", Static)
+            content = str(status.content)
+            self.assertIn("7a9b1c2d3e4f", content)
+            self.assertIn("green", content)
+            self.assertIn("●", content)
+
+    async def test_tui_status_bar_shows_offline_sandbox(self):
+        mock_agent = MagicMock()
+        mock_agent.client.model_name = "test-model"
+        mock_agent.config.enable_thinking = True
+        mock_agent.get_context_status.return_value = "100k left"
+        mock_sandbox = MagicMock()
+        mock_sandbox.is_running = False
+        mock_sandbox.container_id = None
+        mock_agent.sandbox = mock_sandbox
+
+        app = GemmaTUI(mock_agent)
+        async with app.run_test(size=(80, 24)) as pilot:
+            status = app.query_one("#status-bar", Static)
+            content = str(status.content)
+            self.assertIn("offline", content)
+            self.assertIn("red", content)
+            self.assertIn("●", content)
+
+    async def test_tui_status_bar_shows_off_when_no_sandbox(self):
+        mock_agent = MagicMock()
+        mock_agent.client.model_name = "test-model"
+        mock_agent.config.enable_thinking = True
+        mock_agent.get_context_status.return_value = "100k left"
+        mock_agent.sandbox = None
+
+        app = GemmaTUI(mock_agent)
+        async with app.run_test(size=(80, 24)) as pilot:
+            status = app.query_one("#status-bar", Static)
+            content = str(status.content)
+            self.assertIn("off", content)
+            self.assertIn("red", content)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
