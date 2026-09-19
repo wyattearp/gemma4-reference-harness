@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from gemma_harness.client import GemmaClient
+from gemma_harness.prompts import load_system_prompt
 from gemma_harness.sandbox import DockerSandbox
 from gemma_harness.tools import BASH_TOOL_DECLARATION, execute_bash
 from gemma_harness.transcript import TranscriptLogger
@@ -18,10 +19,7 @@ class AgentConfig:
     max_response_tokens: int = 4096
     temperature: float = 0.2
     repetition_penalty: float = 1.15
-    system_prompt: str = (
-        "You are a helpful assistant with access to a bash tool for executing shell commands. "
-        "When reporting results or summarizing command output, provide a concise summary without repeating items."
-    )
+    system_prompt: str = field(default_factory=load_system_prompt)
     transcripts_dir: str = "."
     sandbox_mode: str = "docker"
     sandbox_image: str = "gemma4-sandbox:latest"

@@ -62,7 +62,22 @@ class TestCLI(unittest.TestCase):
             with patch("sys.stderr"):
                 parser.parse_args(["--sandbox", "invalid-mode"])
 
+    def test_cli_system_prompt_arguments(self):
+        parser = build_parser()
+        args = parser.parse_args(["--system-prompt", "custom instruction", "--system-prompt-file", "my_prompt.txt"])
+        self.assertEqual(args.system_prompt, "custom instruction")
+        self.assertEqual(args.system_prompt_file, "my_prompt.txt")
+
+    @patch("gemma_harness.cli.GemmaClient")
+    def test_cli_system_prompt_file_missing_exits_with_error(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        exit_code = run_cli(["--system-prompt-file", "/nonexistent/prompt_file_987.txt", "-p", "hello"])
+        self.assertEqual(exit_code, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

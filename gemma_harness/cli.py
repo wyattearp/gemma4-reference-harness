@@ -98,6 +98,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="./workspace",
         help="Host directory mounted into /workspace in sandbox (default: ./workspace)"
     )
+    parser.add_argument(
+        "--system-prompt-file",
+        type=str,
+        default=None,
+        help="Path to file containing system prompt (default: prompts/system_prompt.txt)"
+    )
+    parser.add_argument(
+        "--system-prompt",
+        type=str,
+        default=None,
+        help="Direct system prompt string (overrides --system-prompt-file)"
+    )
     return parser
 
 
@@ -106,6 +118,17 @@ def run_cli(args_list: Optional[List[str]] = None) -> int:
     args = parser.parse_args(args_list)
 
     try:
+        from gemma_harness.prompts import load_prompt, load_system_prompt
+
+        if args.system_prompt:
+            sys_prompt = args.system_prompt
+        elif args.system_prompt_file:
+            if not os.path.exists(args.system_prompt_file):
+                raise FileNotFoundError(f"System prompt file not found: {args.system_prompt_file}")
+            sys_prompt = load_prompt(args.system_prompt_file)
+        else:
+            sys_prompt = load_system_prompt()
+
         client = GemmaClient(
             base_url=args.base_url,
             api_key=args.api_key,
@@ -119,6 +142,7 @@ def run_cli(args_list: Optional[List[str]] = None) -> int:
             max_response_tokens=args.max_response_tokens,
             temperature=args.temperature,
             repetition_penalty=args.repetition_penalty,
+            system_prompt=sys_prompt,
             transcripts_dir=args.transcripts_dir,
             sandbox_mode=args.sandbox,
             sandbox_image=args.sandbox_image,
