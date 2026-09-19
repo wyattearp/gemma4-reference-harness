@@ -18,13 +18,6 @@ class TranscriptLogger:
         self.transcripts_dir = os.path.join(self.base_dir, "transcripts")
         os.makedirs(self.transcripts_dir, exist_ok=True)
 
-        self.symlink_dir = os.path.join(self.base_dir, "transcripts")
-        if not os.path.exists(self.symlink_dir):
-            try:
-                os.symlink("transcripts", self.symlink_dir)
-            except OSError:
-                pass
-
         self.file_path = os.path.join(self.transcripts_dir, f"{self.isodate}.jsonc")
 
     def log_prompt(self, prompt: str, token_count: int = 0):

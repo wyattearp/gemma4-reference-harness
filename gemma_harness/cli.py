@@ -25,6 +25,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum turns for one-shot mode (default: 100)"
     )
     parser.add_argument(
+        "--max-response-tokens",
+        type=int,
+        default=4096,
+        help="Maximum tokens per model response (default: 4096)"
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.2,
+        help="Sampling temperature (default: 0.2)"
+    )
+    parser.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=1.15,
+        help="Repetition penalty to prevent cyclical loops (default: 1.15)"
+    )
+    parser.add_argument(
         "--thinking",
         dest="thinking",
         action="store_true",
@@ -79,6 +97,9 @@ def run_cli(args_list: Optional[List[str]] = None) -> int:
         config = AgentConfig(
             max_turns=args.max_turns,
             enable_thinking=args.thinking,
+            max_response_tokens=args.max_response_tokens,
+            temperature=args.temperature,
+            repetition_penalty=args.repetition_penalty,
             transcripts_dir=args.transcripts_dir
         )
 

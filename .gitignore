@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local runtime session logs and test scripts
+transcripts/
+snake*.py
+

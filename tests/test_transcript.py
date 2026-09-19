@@ -24,10 +24,6 @@ class TestTranscript(unittest.TestCase):
         self.assertTrue(os.path.exists(file_path))
         self.assertTrue(file_path.endswith(".jsonc"))
 
-        # Verify both transcripts and trasncripts paths exist
-        symlink_path = os.path.join(self.test_dir, "trasncripts")
-        self.assertTrue(os.path.exists(symlink_path))
-
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
 

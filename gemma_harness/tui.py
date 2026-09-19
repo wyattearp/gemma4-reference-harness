@@ -29,7 +29,6 @@ class GemmaTUI(App):
     #input-container {
         dock: bottom;
         height: 3;
-        margin: 0 1;
     }
     Input {
         width: 100%;
@@ -46,7 +45,7 @@ class GemmaTUI(App):
         self.agent = agent
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
+        yield Header(show_clock=True, icon=">")
         with Container(id="chat-container"):
             yield RichLog(id="chat-log", wrap=True, highlight=True, markup=True)
         with Container(id="input-container"):
@@ -77,7 +76,10 @@ class GemmaTUI(App):
 
     def update_status(self, custom_status: str = None) -> None:
         status_bar = self.query_one("#status-bar", Static)
-        status_text = custom_status or self.agent.get_context_status()
+        try:
+            status_text = custom_status or self.agent.get_context_status()
+        except Exception:
+            status_text = custom_status or "Context status unavailable"
         thinking_text = "ON" if self.agent.config.enable_thinking else "OFF"
         status_bar.update(f"[b]{status_text}[/b]  |  Thinking: [b]{thinking_text}[/b]")
 

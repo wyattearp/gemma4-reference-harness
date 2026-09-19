@@ -36,7 +36,7 @@ Gemma 4 introduces a new turn and tool-calling token schema:
    - **One-Shot Mode**: Non-interactive CLI flag (`-p "prompt"`, `--max-turns 100`).
 
 4. **Transcript Logging**:
-   - Automatically writes every prompt, raw completion, tool execution, and compaction event to `./transcripts/{isodate}.jsonc` (with `./trasncripts` symlink support).
+   - Automatically writes every prompt, raw completion, tool execution, and compaction event to `./transcripts/{isodate}.jsonc`.
 
 ---
 

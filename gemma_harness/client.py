@@ -5,7 +5,16 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
+# Configure environment to silence PyTorch missing and unauthenticated hub warnings
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("HF_HUB_VERBOSITY", "error")
+
 from transformers import AutoTokenizer
+from transformers.utils import logging as hf_logging
+import huggingface_hub.utils.logging as hub_logging
+
+hf_logging.set_verbosity_error()
+hub_logging.set_verbosity_error()
 
 
 class GemmaClient:
@@ -65,6 +74,16 @@ class GemmaClient:
         except Exception:
             # Fallback to known gemma 4 id if local tokenizer loading needs standard repo
             self.tokenizer = AutoTokenizer.from_pretrained("wyattearp/Gemma-4-26B-A4B-it-NVFP4")
+
+        # Hot-patch response_template to natively support both <tool_call|> and <tool_response|>
+        if hasattr(self.tokenizer, "response_template") and isinstance(self.tokenizer.response_template, dict):
+            import copy
+            patched = copy.deepcopy(self.tokenizer.response_template)
+            fields = patched.get("fields", {})
+            if "tool_calls" in fields and isinstance(fields["tool_calls"], dict):
+                fields["tool_calls"]["close"] = ["<tool_call|>", "<tool_response|>"]
+                self.tokenizer.response_template = patched
+
         return self.tokenizer
 
     def count_tokens(self, text: str) -> int:
@@ -90,8 +109,9 @@ class GemmaClient:
     def generate_completion(
         self,
         prompt: str,
-        max_tokens: int = 1024,
-        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        temperature: float = 0.2,
+        repetition_penalty: float = 1.15,
     ) -> Tuple[str, Dict[str, Any]]:
         model_id = self.model_name or self.discover_model()
         payload = {
@@ -99,7 +119,8 @@ class GemmaClient:
             "prompt": prompt,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "stop": ["<turn|>", "<|turn>", "<|tool_response>", "<eos>"],
+            "repetition_penalty": repetition_penalty,
+            "stop": ["<turn|>", "<|turn>", "<|tool_response>", "<tool_call|>", "<tool_response|>", "<eos>"],
             "skip_special_tokens": False
         }
         body = json.dumps(payload).encode("utf-8")
@@ -160,20 +181,38 @@ class GemmaClient:
         # Fallback / safety regex check to guarantee tool calls are captured
         if "tool_calls" not in parsed or not parsed["tool_calls"]:
             tool_calls = []
-            for name, args_str in re.findall(r"<\|tool_call>call:(\w+)\{(.*?)\}<tool_call\|>", generated_text, re.DOTALL):
+            pattern_loose = r"<\|tool_call>call:(\w+)\{(.*?)(?:\}(?:<tool_call\|>|<tool_response\|>|(?=<\|)|\Z)|\Z)"
+            arg_regex = r'(\w+):(?:<\|"\|>(.*?)(?:<\|"\|>|$)|([^,}]*))'
+            for m in re.finditer(pattern_loose, generated_text, re.DOTALL):
+                name = m.group(1)
+                args_str = m.group(2)
                 parsed_args = {}
-                for k, v_quoted, v_raw in re.findall(r'(\w+):(?:<\|"\|>(.*?)<\|"\|>|([^,}]*))', args_str):
+                for k, v_quoted, v_raw in re.findall(arg_regex, args_str, re.DOTALL):
+                    if not k:
+                        continue
                     val = v_quoted if v_quoted is not None and v_quoted != "" else v_raw.strip()
                     parsed_args[k] = val
-                tool_calls.append({
-                    "type": "function",
-                    "function": {
-                        "name": name,
-                        "arguments": parsed_args
-                    }
-                })
+                if parsed_args:
+                    tool_calls.append({
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": parsed_args
+                        }
+                    })
             if tool_calls:
                 parsed["tool_calls"] = tool_calls
+
+        # Check if thoughts leaked into content (a known Gemma 4 edge case where an empty
+        # thought channel is emitted followed by reasoning text and a second <channel|> tag)
+        if "<channel|>" in parsed.get("content", ""):
+            thought_leak, final_content = parsed["content"].rsplit("<channel|>", 1)
+            if thought_leak.strip():
+                if parsed.get("thinking"):
+                    parsed["thinking"] = f"{parsed['thinking']}\n{thought_leak.strip()}".strip()
+                else:
+                    parsed["thinking"] = thought_leak.strip()
+            parsed["content"] = final_content.strip()
 
         # Clean any raw tokens that might leak into content
         if parsed.get("content"):

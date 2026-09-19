@@ -13,7 +13,13 @@ class AgentConfig:
     enable_thinking: bool = True
     context_window: int = 256 * 1024  # 262,144 tokens
     compaction_threshold_ratio: float = 0.85  # 85% full (~222,822 tokens)
-    system_prompt: str = "You are a helpful assistant with access to a bash tool for executing shell commands."
+    max_response_tokens: int = 4096
+    temperature: float = 0.2
+    repetition_penalty: float = 1.15
+    system_prompt: str = (
+        "You are a helpful assistant with access to a bash tool for executing shell commands. "
+        "When reporting results or summarizing command output, provide a concise summary without repeating items."
+    )
     transcripts_dir: str = "."
 
 
@@ -139,15 +145,25 @@ class Agent:
                 messages_to_render,
                 tools=self.tools,
                 enable_thinking=self.config.enable_thinking,
-                add_generation_prompt=True
+                add_generation_prompt=(assistant_turn is None)
             )
             prompt_tokens = self.client.count_tokens(prompt)
             self.transcript.log_prompt(prompt, token_count=prompt_tokens)
 
             # Generate completion
-            raw_text, raw_data = self.client.generate_completion(prompt)
+            raw_text, raw_data = self.client.generate_completion(
+                prompt,
+                max_tokens=self.config.max_response_tokens,
+                temperature=self.config.temperature,
+                repetition_penalty=self.config.repetition_penalty
+            )
             raw_tokens = self.client.count_tokens(raw_text)
-            self.transcript.log_raw_completion(raw_text, token_count=raw_tokens)
+            finish_reason = None
+            if isinstance(raw_data, dict):
+                choices = raw_data.get("choices")
+                if choices and isinstance(choices, list) and len(choices) > 0 and isinstance(choices[0], dict):
+                    finish_reason = choices[0].get("finish_reason")
+            self.transcript.log_raw_completion(raw_text, token_count=raw_tokens, stop_reason=finish_reason)
 
             # Parse completion
             parsed = self.client.parse_output(raw_text, prefix=prompt, tools=self.tools)
@@ -170,7 +186,13 @@ class Agent:
                     if self.on_tool_call:
                         self.on_tool_call(fn_name, fn_args)
 
-                    if fn_name == "bash":
+                    if finish_reason == "length" and not (raw_text.strip().endswith("<tool_call|>") or raw_text.strip().endswith("<tool_response|>")):
+                        result = {
+                            "exit_code": 1,
+                            "stdout": "",
+                            "stderr": "Error: Tool execution aborted because model generation reached the maximum token limit before completing the tool call."
+                        }
+                    elif fn_name == "bash":
                         cmd = fn_args.get("command", "")
                         result = execute_bash(cmd)
                     else:

@@ -46,8 +46,8 @@ class TestAgent(unittest.TestCase):
         }
 
         mock_client.generate_completion.side_effect = [
-            ("raw_tool_text", {"choices": [{"text": "raw_tool_text"}]}),
-            ("raw_final_text", {"choices": [{"text": "raw_final_text"}]}),
+            ("raw_tool_text", {"choices": [{"text": "raw_tool_text", "finish_reason": "tool_calls"}]}),
+            ("raw_final_text", {"choices": [{"text": "raw_final_text", "finish_reason": "stop"}]}),
         ]
         mock_client.parse_output.side_effect = [
             tool_call_parsed,
@@ -67,6 +67,11 @@ class TestAgent(unittest.TestCase):
         result = agent.run_turn("test task")
         self.assertEqual(result, "Directory listed successfully.")
         self.assertEqual(len(agent.history), 3)  # system + user + assistant
+
+        raw_events = [e for e in agent.transcript.events if e["type"] == "raw_completion_received"]
+        self.assertEqual(len(raw_events), 2)
+        self.assertEqual(raw_events[0]["stop_reason"], "tool_calls")
+        self.assertEqual(raw_events[1]["stop_reason"], "stop")
 
         # Test sliding window compaction
         # Add multiple dummy turns and set token count high
@@ -114,6 +119,39 @@ class TestAgent(unittest.TestCase):
         # Should terminate with error/stop message after max turns
         with self.assertRaises(RuntimeError):
             agent.run_turn("infinite task")
+
+        raw_events = [e for e in agent.transcript.events if e["type"] == "raw_completion_received"]
+        self.assertTrue(len(raw_events) > 0)
+        self.assertIsNone(raw_events[0]["stop_reason"])
+
+    # Truncation guard test
+    from unittest.mock import patch
+    @patch("gemma_harness.agent.execute_bash")
+    def test_agent_truncation_guard_aborts_cut_off_command(self, mock_bash):
+        mock_client = MagicMock()
+        mock_client.model_name = "test-model"
+        mock_client.render_prompt.return_value = "<|turn>user\nhi<turn|>"
+        mock_client.count_tokens.return_value = 100
+
+        truncated_raw = "<|tool_call>call:bash{command:<|\"|>cat << 'EOF' > snake.py\ncode..."
+        mock_client.generate_completion.side_effect = [
+            (truncated_raw, {"choices": [{"text": truncated_raw, "finish_reason": "length"}]}),
+            ("Recovered", {"choices": [{"text": "Recovered", "finish_reason": "stop"}]}),
+        ]
+        mock_client.parse_output.side_effect = [
+            {"role": "assistant", "tool_calls": [{"function": {"name": "bash", "arguments": {"command": "cat << 'EOF' > snake.py\ncode..."}}}], "content": ""},
+            {"role": "assistant", "tool_calls": [], "content": "Recovered"}
+        ]
+
+        agent = Agent(client=mock_client, config=AgentConfig(max_turns=3, transcripts_dir=self.test_dir))
+        result = agent.run_turn("write snake")
+
+        # mock_bash should NOT have been called with the truncated command!
+        mock_bash.assert_not_called()
+        self.assertEqual(result, "Recovered")
+
+    def test_repetition_penalty_default(self):
+        self.assertEqual(AgentConfig().repetition_penalty, 1.15)
 
 
 if __name__ == "__main__":
