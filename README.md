@@ -67,7 +67,7 @@ python -m gemma_harness -p "Create a python script snake.py that runs a simple s
 | `-u`, `--base-url` | `$OPENAI_BASE_URL` | vLLM endpoint URL |
 | `-k`, `--api-key` | `$OPENAI_API_KEY` | API key for the endpoint |
 | `-m`, `--model` | auto-discover | Model ID (discovers via `/v1/models` if omitted) |
-| `--system-prompt-file` | `prompts/system_prompt.txt` | Path to file containing system prompt |
+| `--system-prompt-file` | `prompts/system_prompt.md` | Path to file containing system prompt |
 | `--system-prompt` | `None` | Direct system prompt string (overrides file) |
 | `--transcripts-dir` | `.` | Directory to save JSONC session transcripts |
 
