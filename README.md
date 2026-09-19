@@ -1,8 +1,73 @@
 # Gemma 4 Reference Harness
 
-A production-grade reference implementation and agent harness for **Gemma 4** (`wyattearp/Gemma-4-26B-A4B-it-NVFP4` and related Gemma 4 models).
+A prototype-grade reference implementation and agent harness for **Gemma 4** (`wyattearp/Gemma-4-26B-A4B-it-NVFP4` and related Gemma 4 models).
 
-Designed according to the **Caveman Flat** philosophy: flat procedural code flows forward with minimal abstractions, standard library first, and zero extraneous framework magic.
+---
+
+## Quick Start
+
+### Prerequisites
+- Linux host with Python 3.10+
+- Docker with [gVisor `runsc`](https://gvisor.dev/docs/user_guide/install/) installed
+- Local vLLM instance serving Gemma 4 (e.g. `wyattearp/Gemma-4-26B-A4B-it-NVFP4`)
+
+### Setup
+```bash
+# 1. Activate virtual environment
+source .venv/bin/activate
+
+# 2. Build sandbox image (if not already built)
+docker build -t gemma4-sandbox:latest -f Dockerfile.sandbox .
+```
+
+---
+
+### Running Tests
+All tests adhere strictly to the **Red → Red → Green** methodology (failing happy-path test, failing sad-path test, clean implementation):
+
+```bash
+python -m unittest discover tests
+```
+## Features & Operating Modes
+
+### 1. Interactive Mode (Textual TUI)
+A complete terminal UI featuring:
+- Live streaming thought log and tool execution panels.
+- Real-time token counter tracking context capacity and tokens remaining before compaction.
+- Slash command palette:
+  - `/clear` - Reset context history and start a fresh session transcript.
+  - `/compact` - Manually trigger sliding-window compaction.
+  - `/thinking [on|off]` - Toggle model reasoning mode.
+  - `/help` - Show available commands.
+  - `/quit` - Exit the application.
+
+```bash
+python -m gemma_harness
+```
+
+### 2. One-Shot Mode (CLI)
+Non-interactive headless execution for scripts and automated workflows:
+
+```bash
+python -m gemma_harness -p "Create a python script snake.py that runs a simple snake game, verify it runs without errors, then summarize."
+```
+
+#### Available CLI Options:
+| Flag | Default | Description |
+|---|---|---|
+| `-p`, `--prompt` | `None` | One-shot prompt to run non-interactively |
+| `--sandbox` | `docker` | Sandbox execution backend (`docker` or `none`) |
+| `--sandbox-image` | `gemma4-sandbox:latest` | Docker image to use for the sandbox |
+| `--workspace-dir` | `./workspace` | Host directory mounted into `/workspace` |
+| `--max-turns` | `100` | Maximum agent turns before halting |
+| `--max-response-tokens` | `4096` | Max tokens generated per model turn |
+| `--thinking` / `--no-thinking` | `--thinking` | Enable or disable thought reasoning |
+| `--temperature` | `0.2` | Sampling temperature |
+| `--repetition-penalty` | `1.15` | Repetition penalty to mitigate loops |
+| `-u`, `--base-url` | `$OPENAI_BASE_URL` | vLLM endpoint URL |
+| `-k`, `--api-key` | `$OPENAI_API_KEY` | API key for the endpoint |
+| `-m`, `--model` | auto-discover | Model ID (discovers via `/v1/models` if omitted) |
+| `--transcripts-dir` | `.` | Directory to save JSONC session transcripts |
 
 ---
 
@@ -89,74 +154,6 @@ Building an agent harness for Gemma 4 requires addressing unique model behaviors
   - **Workspace Persistence**: The host directory `./workspace` is mounted directly into `/workspace` inside the container.
   - **Host User File Ownership**: Commands are executed using `--user $(id -u):$(id -g)` so that all files created by the agent are owned by the host user (`wyatt:wyatt`), avoiding root-locked files on the host.
   - **Rich Development Environment**: Built from [`Dockerfile.sandbox`](file:///home/wyatt/git_repos/gemma4-reference-harness/Dockerfile.sandbox) containing `gcc`, `g++`, `make`, `git`, `curl`, `wget`, `jq`, `ripgrep`, `tree`, `file`, archive utilities (`tar`, `gzip`, `bzip2`, `xz-utils`, `unzip`, `zip`), `pytest`, `requests`, and `numpy`.
-
----
-
-## Features & Operating Modes
-
-### 1. Interactive Mode (Textual TUI)
-A complete terminal UI featuring:
-- Live streaming thought log and tool execution panels.
-- Real-time token counter tracking context capacity and tokens remaining before compaction.
-- Slash command palette:
-  - `/clear` - Reset context history and start a fresh session transcript.
-  - `/compact` - Manually trigger sliding-window compaction.
-  - `/thinking [on|off]` - Toggle model reasoning mode.
-  - `/help` - Show available commands.
-  - `/quit` - Exit the application.
-
-```bash
-python -m gemma_harness
-```
-
-### 2. One-Shot Mode (CLI)
-Non-interactive headless execution for scripts and automated workflows:
-
-```bash
-python -m gemma_harness -p "Create a python script snake.py that runs a simple snake game, verify it runs without errors, then summarize."
-```
-
-#### Available CLI Options:
-| Flag | Default | Description |
-|---|---|---|
-| `-p`, `--prompt` | `None` | One-shot prompt to run non-interactively |
-| `--sandbox` | `docker` | Sandbox execution backend (`docker` or `none`) |
-| `--sandbox-image` | `gemma4-sandbox:latest` | Docker image to use for the sandbox |
-| `--workspace-dir` | `./workspace` | Host directory mounted into `/workspace` |
-| `--max-turns` | `100` | Maximum agent turns before halting |
-| `--max-response-tokens` | `4096` | Max tokens generated per model turn |
-| `--thinking` / `--no-thinking` | `--thinking` | Enable or disable thought reasoning |
-| `--temperature` | `0.2` | Sampling temperature |
-| `--repetition-penalty` | `1.15` | Repetition penalty to mitigate loops |
-| `-u`, `--base-url` | `$OPENAI_BASE_URL` | vLLM endpoint URL |
-| `-k`, `--api-key` | `$OPENAI_API_KEY` | API key for the endpoint |
-| `-m`, `--model` | auto-discover | Model ID (discovers via `/v1/models` if omitted) |
-| `--transcripts-dir` | `.` | Directory to save JSONC session transcripts |
-
----
-
-## Quick Start
-
-### Prerequisites
-- Linux host with Python 3.10+
-- Docker with [gVisor `runsc`](https://gvisor.dev/docs/user_guide/install/) installed
-- Local vLLM instance serving Gemma 4 (e.g. `wyattearp/Gemma-4-26B-A4B-it-NVFP4`)
-
-### Setup
-```bash
-# 1. Activate virtual environment
-source .venv/bin/activate
-
-# 2. Build sandbox image (if not already built)
-docker build -t gemma4-sandbox:latest -f Dockerfile.sandbox .
-```
-
-### Running Tests
-All tests adhere strictly to the **Red → Red → Green** methodology (failing happy-path test, failing sad-path test, clean implementation):
-
-```bash
-python -m unittest discover tests
-```
 
 ---
 

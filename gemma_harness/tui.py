@@ -19,19 +19,23 @@ class GemmaTUI(App):
         border: solid $primary;
         margin: 0 1;
     }
+    #input-container {
+        height: 3;
+        margin: 0 1;
+    }
+    #user-input {
+        width: 100%;
+        border: solid $primary;
+        padding: 0 1;
+    }
+    #user-input:focus {
+        border: solid $accent;
+    }
     #status-bar {
         height: 1;
-        dock: bottom;
         background: $panel;
         color: $text-muted;
         padding: 0 1;
-    }
-    #input-container {
-        dock: bottom;
-        height: 3;
-    }
-    Input {
-        width: 100%;
     }
     """
 
