@@ -41,6 +41,28 @@ class TestCLI(unittest.TestCase):
         exit_code = run_cli(["-p", "fail task"])
         self.assertEqual(exit_code, 1)
 
+    def test_cli_parser_sandbox_defaults(self):
+        parser = build_parser()
+        args = parser.parse_args([])
+        self.assertEqual(args.sandbox, "docker")
+        self.assertEqual(args.sandbox_image, "gemma4-sandbox:latest")
+        self.assertEqual(args.workspace_dir, "./workspace")
+
+    def test_cli_parser_sandbox_custom(self):
+        parser = build_parser()
+        args = parser.parse_args(["--sandbox", "none", "--workspace-dir", "/tmp/ws", "--sandbox-image", "my-img:v1"])
+        self.assertEqual(args.sandbox, "none")
+        self.assertEqual(args.sandbox_image, "my-img:v1")
+        self.assertEqual(args.workspace_dir, "/tmp/ws")
+
+    def test_cli_parser_invalid_sandbox_choice(self):
+        parser = build_parser()
+        # argparse prints error and exits with code 2 on invalid choices
+        with self.assertRaises(SystemExit):
+            with patch("sys.stderr"):
+                parser.parse_args(["--sandbox", "invalid-mode"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

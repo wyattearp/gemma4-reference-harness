@@ -153,6 +153,95 @@ class TestAgent(unittest.TestCase):
     def test_repetition_penalty_default(self):
         self.assertEqual(AgentConfig().repetition_penalty, 1.15)
 
+    # Sandbox integration tests
+    def test_agent_executes_via_sandbox(self):
+        mock_client = MagicMock()
+        mock_client.model_name = "test-model"
+        mock_client.render_prompt.return_value = "<|turn>user\nhi<turn|>"
+        mock_client.count_tokens.return_value = 100
+        mock_client.generate_completion.side_effect = [
+            ("<|tool_call>call:bash{command:<|\"|>echo hi<|\"|>}", {"choices": [{"text": "call", "finish_reason": "stop"}]}),
+            ("Done!", {"choices": [{"text": "Done!", "finish_reason": "stop"}]}),
+        ]
+        mock_client.parse_output.side_effect = [
+            {"role": "assistant", "tool_calls": [{"function": {"name": "bash", "arguments": {"command": "echo hi"}}}], "content": ""},
+            {"role": "assistant", "tool_calls": [], "content": "Done!"}
+        ]
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.execute.return_value = {"exit_code": 0, "stdout": "hi\n", "stderr": ""}
+
+        agent = Agent(
+            client=mock_client,
+            config=AgentConfig(max_turns=3, sandbox_mode="docker", transcripts_dir=self.test_dir)
+        )
+        agent.sandbox = mock_sandbox
+
+        res = agent.run_turn("run echo")
+        self.assertEqual(res, "Done!")
+        mock_sandbox.execute.assert_called_once_with("echo hi")
+
+    @patch("gemma_harness.agent.execute_bash")
+    def test_agent_executes_fallback_when_sandbox_none(self, mock_bash):
+        mock_bash.return_value = {"exit_code": 0, "stdout": "local hi\n", "stderr": ""}
+
+        mock_client = MagicMock()
+        mock_client.model_name = "test-model"
+        mock_client.render_prompt.return_value = "<|turn>user\nhi<turn|>"
+        mock_client.count_tokens.return_value = 100
+        mock_client.generate_completion.side_effect = [
+            ("<|tool_call>call:bash{command:<|\"|>echo local<|\"|>}", {"choices": [{"text": "call", "finish_reason": "stop"}]}),
+            ("Done!", {"choices": [{"text": "Done!", "finish_reason": "stop"}]}),
+        ]
+        mock_client.parse_output.side_effect = [
+            {"role": "assistant", "tool_calls": [{"function": {"name": "bash", "arguments": {"command": "echo local"}}}], "content": ""},
+            {"role": "assistant", "tool_calls": [], "content": "Done!"}
+        ]
+
+        agent = Agent(
+            client=mock_client,
+            config=AgentConfig(max_turns=3, sandbox_mode="none", transcripts_dir=self.test_dir)
+        )
+
+        res = agent.run_turn("run local")
+        self.assertEqual(res, "Done!")
+        mock_bash.assert_called_once_with("echo local")
+
+    def test_agent_extracts_positional_and_markdown_wrapped_command(self):
+        mock_client = MagicMock()
+        mock_client.model_name = "test-model"
+        mock_client.render_prompt.return_value = "<|turn>user\nhi<turn|>"
+        mock_client.count_tokens.return_value = 100
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.execute.return_value = {"exit_code": 0, "stdout": "extracted\n", "stderr": ""}
+
+        agent = Agent(
+            client=mock_client,
+            config=AgentConfig(max_turns=3, sandbox_mode="docker", transcripts_dir=self.test_dir)
+        )
+        agent.sandbox = mock_sandbox
+
+        # Case 1: Key "1" with conversational preamble and markdown code block
+        args_with_markdown = {
+            "1": "Generating the script to create snake.py:\n\n```bash\ncat << 'EOF' > snake.py\ncode\nEOF\n```"
+        }
+        cmd = agent.extract_command(args_with_markdown)
+        self.assertEqual(cmd, "cat << 'EOF' > snake.py\ncode\nEOF")
+
+        # Case 2: Key "0" plain command
+        cmd_zero = agent.extract_command({"0": "ls -la"})
+        self.assertEqual(cmd_zero, "ls -la")
+
+    def test_agent_extracts_command_sad_path(self):
+        agent = Agent(client=MagicMock(), config=AgentConfig(sandbox_mode="none", transcripts_dir=self.test_dir))
+        self.assertEqual(agent.extract_command({}), "")
+        self.assertEqual(agent.extract_command(None), "")
+        self.assertEqual(agent.extract_command(12345), "")
+        self.assertEqual(agent.extract_command({"foo": "bar", "baz": "qux"}), "")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+

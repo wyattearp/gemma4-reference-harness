@@ -79,6 +79,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Directory to save transcripts (default: current directory)"
     )
+    parser.add_argument(
+        "--sandbox",
+        type=str,
+        choices=["docker", "none"],
+        default="docker",
+        help="Sandbox execution environment ('docker' or 'none', default: docker)"
+    )
+    parser.add_argument(
+        "--sandbox-image",
+        type=str,
+        default="gemma4-sandbox:latest",
+        help="Docker image for sandbox execution (default: gemma4-sandbox:latest)"
+    )
+    parser.add_argument(
+        "--workspace-dir",
+        type=str,
+        default="./workspace",
+        help="Host directory mounted into /workspace in sandbox (default: ./workspace)"
+    )
     return parser
 
 
@@ -100,7 +119,10 @@ def run_cli(args_list: Optional[List[str]] = None) -> int:
             max_response_tokens=args.max_response_tokens,
             temperature=args.temperature,
             repetition_penalty=args.repetition_penalty,
-            transcripts_dir=args.transcripts_dir
+            transcripts_dir=args.transcripts_dir,
+            sandbox_mode=args.sandbox,
+            sandbox_image=args.sandbox_image,
+            workspace_dir=args.workspace_dir,
         )
 
         if args.prompt:

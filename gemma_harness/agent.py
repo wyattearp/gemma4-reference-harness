@@ -1,8 +1,10 @@
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from gemma_harness.client import GemmaClient
+from gemma_harness.sandbox import DockerSandbox
 from gemma_harness.tools import BASH_TOOL_DECLARATION, execute_bash
 from gemma_harness.transcript import TranscriptLogger
 
@@ -21,6 +23,9 @@ class AgentConfig:
         "When reporting results or summarizing command output, provide a concise summary without repeating items."
     )
     transcripts_dir: str = "."
+    sandbox_mode: str = "docker"
+    sandbox_image: str = "gemma4-sandbox:latest"
+    workspace_dir: str = "./workspace"
 
 
 class Agent:
@@ -52,6 +57,13 @@ class Agent:
             model_name=model_name or "gemma-4"
         )
         self.tools = [BASH_TOOL_DECLARATION]
+
+        self.sandbox: Optional[DockerSandbox] = None
+        if self.config.sandbox_mode == "docker":
+            self.sandbox = DockerSandbox(
+                image=self.config.sandbox_image,
+                workspace_dir=self.config.workspace_dir,
+            )
 
     @property
     def compaction_threshold(self) -> int:
@@ -123,6 +135,31 @@ class Agent:
         if self.on_status:
             self.on_status(f"Session cleared. {self.get_context_status()}")
 
+    def extract_command(self, fn_args: Any) -> str:
+        if isinstance(fn_args, str):
+            raw_cmd = fn_args
+        elif isinstance(fn_args, dict):
+            if "command" in fn_args:
+                raw_cmd = str(fn_args["command"])
+            elif "1" in fn_args:
+                raw_cmd = str(fn_args["1"])
+            elif "0" in fn_args:
+                raw_cmd = str(fn_args["0"])
+            elif len(fn_args) == 1:
+                raw_cmd = str(next(iter(fn_args.values())))
+            else:
+                raw_cmd = ""
+        else:
+            raw_cmd = ""
+
+        raw_cmd = raw_cmd.strip()
+        if "```" in raw_cmd:
+            match = re.search(r"```(?:bash|sh)?\n?(.*?)\n?```", raw_cmd, re.DOTALL)
+            if match:
+                return match.group(1).strip()
+
+        return raw_cmd
+
     def run_turn(self, user_input: str) -> str:
         # 1. Add user message to history
         self.history.append({"role": "user", "content": user_input})
@@ -193,8 +230,11 @@ class Agent:
                             "stderr": "Error: Tool execution aborted because model generation reached the maximum token limit before completing the tool call."
                         }
                     elif fn_name == "bash":
-                        cmd = fn_args.get("command", "")
-                        result = execute_bash(cmd)
+                        cmd = self.extract_command(fn_args)
+                        if self.sandbox:
+                            result = self.sandbox.execute(cmd)
+                        else:
+                            result = execute_bash(cmd)
                     else:
                         result = {"exit_code": 1, "stdout": "", "stderr": f"Unknown tool: {fn_name}"}
 

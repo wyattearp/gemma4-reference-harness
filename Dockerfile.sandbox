@@ -1,0 +1,34 @@
+FROM python:3.10-slim
+
+# Install system utilities, compilation tools, and networking tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    build-essential \
+    curl \
+    wget \
+    git \
+    jq \
+    ripgrep \
+    procps \
+    tree \
+    file \
+    tar \
+    gzip \
+    bzip2 \
+    xz-utils \
+    unzip \
+    zip \
+    iproute2 \
+    libncurses5-dev \
+    libncursesw5-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install common development Python packages
+RUN pip install --no-cache-dir \
+    pytest \
+    requests \
+    numpy
+
+WORKDIR /workspace
+
+CMD ["sleep", "infinity"]
