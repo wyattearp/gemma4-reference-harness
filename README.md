@@ -1,6 +1,7 @@
-# Gemma 4 Reference Harness
+# (Unofficial) Gemma 4 Reference Harness
 
 A prototype-grade reference implementation and agent harness for **Gemma 4** (`wyattearp/Gemma-4-26B-A4B-it-NVFP4` and related Gemma 4 models).
+I had Gemini make this after noticing multiple issues with using Gemma 4 on **literally any harness** so I could debug what was failing.
 
 ---
 
