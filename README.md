@@ -119,15 +119,15 @@ Building an agent harness for Gemma 4 requires addressing unique model behaviors
 - **Problem**: Gemma 4 natively supports up to 256K context tokens (262,144 tokens), but individual turn completions are bounded by output token limits (typically 4096 tokens). In agentic loops, histories quickly accumulate thousands of tokens across multiple bash execution results.
 - **Decision & Mitigation**: The harness configures `context_window = 256 * 1024` and `max_response_tokens = 4096`. To prevent runaway context exhaustion, it enforces sliding-window compaction at an 85% threshold (~222,822 tokens). Compaction procedurally discards older user/assistant turns while preserving the initial system prompt and recent turns down to 60% capacity. Both the CLI and TUI provide real-time status reporting tokens remaining before compaction.
 
-### 2. Raw Completions vs. OpenAI Chat Endpoint
-- **Reference**: [Gemma 4 Prompt Formatting](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4)
+### 2. Raw Completions vs. OpenAI Chat Endpoint & Server-Side Parsers
+- **References**: [Gemma 4 Prompt Formatting](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4) & [vLLM PR #54257](https://github.com/vllm-project/vllm/pull/54257)
 - **Problem**: Gemma 4 relies on specialized structural tokens:
   - Turn delimiters: `<|turn>system`, `<|turn>user`, `<|turn>model`, and turn closing `<turn|>`.
   - Thinking channel: `<|think|>` token in system turn triggers `<|channel>thought\n...\n<channel|>`.
   - Tool calls: `<|tool_call>call:name{arg:<|"|>val<|"|>}<tool_call|>`.
   - Tool responses: `<|tool_response>response:name{...}<tool_response|>`.
-  Standard vLLM `/v1/chat/completions` strips `<|channel>thought` reasoning channels during tool calling. Furthermore, standard `/v1/completions` defaults to `skip_special_tokens=True`, which silently strips `<|tool_call>` (token ID 48) and `<tool_call|>` (token ID 49), corrupting output parsing regexes.
-- **Decision & Mitigation**: The harness renders prompts client-side using Hugging Face `AutoTokenizer` chat templates and dispatches them directly to `/v1/completions` with `skip_special_tokens=False` and explicit stop tokens `["<turn|>", "<|tool_response>"]`. Both thoughts and structured function calls are preserved.
+  Standard vLLM `/v1/chat/completions` strips `<|channel>thought` reasoning channels during tool calling. Furthermore, standard `/v1/completions` defaults to `skip_special_tokens=True`, which silently strips `<|tool_call>` (token ID 48) and `<tool_call|>` (token ID 49), corrupting output parsing regexes. In addition, vLLM's internal server-side tool parser suffered from a ~35% failure rate due to rigid regexes (addressed in [vLLM PR #54257](https://github.com/vllm-project/vllm/pull/54257)).
+- **Decision & Mitigation**: The harness renders prompts client-side using Hugging Face `AutoTokenizer` chat templates and dispatches them directly to `/v1/completions` with `skip_special_tokens=False` and explicit stop tokens `["<turn|>", "<|tool_response>"]`. Both thoughts and structured function calls are preserved without depending on server-side vLLM parser patches.
 
 ### 3. Thinking Mode & Thought Retention Semantics
 - **Reference**: [Google AI Thinking Capabilities](https://ai.google.dev/gemma/docs/capabilities/thinking)
@@ -198,6 +198,12 @@ During development and testing with Gemma 4, several notable contradictions betw
 - **The Expectation**: Standard OpenAI `/v1/chat/completions` and `/v1/completions` endpoints serve tool-enabled models out-of-the-box.
 - **The Serving Contradiction**: vLLM's `/v1/chat/completions` endpoint strips `<|channel>thought` internal reasoning tokens when tools are active. Simultaneously, `/v1/completions` defaults to `skip_special_tokens=True`, silently stripping `<|tool_call>` (token ID 48) and `<tool_call|>` (token ID 49).
 - **Harness Resolution**: Prompts are formatted client-side with Hugging Face `AutoTokenizer` and dispatched to `/v1/completions` with explicit `skip_special_tokens=False`.
+
+### 5. Server-Side Tool Choice Parsers vs. Non-Canonical Calls ([vLLM PR #54257](https://github.com/vllm-project/vllm/pull/54257))
+- **The Expectation**: Relying on vLLM's built-in server-side tool parser (`--enable-auto-tool-choice --tool-call-parser gemma4`) to handle tool call extraction automatically via `/v1/chat/completions`.
+- **The Upstream Failure / Contradiction**: In practice, Gemma 4 frequently generates bare `call:name{...}` without the canonical `<|tool_call>` opening tag, transitions directly from `<channel|>` to `call:` without whitespace, or outputs tool names containing hyphens and periods. In upstream vLLM (`vllm/tool_parsers/gemma4_utils.py`), rigid regexes caused a ~35% failure rate in automated agent benchmarks (such as modified Anthropic defensive harnesses that bail out at the first failed call).
+- **The Upstream PR**: Author `@wyattearp` submitted [vLLM PR #54257](https://github.com/vllm-project/vllm/pull/54257) (`[Bugfix][Parser] Support bare call: and whitespace-free channel transitions in Gemma4 parser`), adding balanced-brace extraction, hyphenated tool names, and bare `call:` recovery to reduce tool failure rates from 35% to 0%.
+- **Why Abandoned on the Server & Harness Resolution**: Rather than tying harness reliability to unmerged server-side PRs or requiring users to maintain custom-patched vLLM builds across GPU clusters, this reference harness abandoned server-side tool choice parsing entirely. By dispatching raw completions (`skip_special_tokens=False`) to `/v1/completions` and handling extraction via client-side Hugging Face parsing and [`Agent.extract_command`](file:///home/wyatt/git_repos/gemma4-reference-harness/gemma_harness/agent.py#L138-L162), the harness achieves 100% tool recovery against any stock, unmodified vLLM deployment.
 
 ---
 
